@@ -1,0 +1,17 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+.vscode/*
+!.vscode/extensions.json
+*.log
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Deploy tooling
+.vercel
+.netlify
