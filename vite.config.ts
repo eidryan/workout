@@ -4,6 +4,12 @@ import path from 'path'
 import { VitePWA } from 'vite-plugin-pwa'
 
 export default defineConfig({
+  // Which env vars get inlined into the client bundle.
+  // `NEXT_PUBLIC_SUPABASE_` is what the Vercel Supabase integration provisions,
+  // and it matches ONLY public values (URL / anon / publishable key).
+  // Do NOT widen this to `SUPABASE_` — that would leak SERVICE_ROLE_KEY,
+  // SECRET_KEY and JWT_SECRET into the browser.
+  envPrefix: ['VITE_', 'NEXT_PUBLIC_SUPABASE_'],
   plugins: [
     react(),
     VitePWA({

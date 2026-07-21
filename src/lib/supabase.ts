@@ -8,8 +8,13 @@ import { createClient, type SupabaseClient } from '@supabase/supabase-js'
  * project) `supabase` is null and all sync code no-ops, leaving Dexie as the
  * single source of truth.
  */
-const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
-const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
+// Accept either naming: VITE_* (manual setup) or NEXT_PUBLIC_SUPABASE_*
+// (what the Vercel Supabase Marketplace integration provisions).
+const env = import.meta.env
+const url = (env.VITE_SUPABASE_URL ?? env.NEXT_PUBLIC_SUPABASE_URL) as string | undefined
+const anonKey = (env.VITE_SUPABASE_ANON_KEY ?? env.NEXT_PUBLIC_SUPABASE_ANON_KEY) as
+  | string
+  | undefined
 
 export const isSyncConfigured = Boolean(url && anonKey)
 

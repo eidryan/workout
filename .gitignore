@@ -15,3 +15,5 @@ dist-ssr
 # Deploy tooling
 .vercel
 .netlify
+
+.env*.local
