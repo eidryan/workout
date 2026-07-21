@@ -22,6 +22,8 @@ export interface DayTemplate {
   name: string // e.g. "Day 1 — Legs"
   focus: string // e.g. "Strength + Controlled Volume"
   order: number // 1..4 — rotation order
+  /** ISO timestamp of the last local modification (drives sync LWW). */
+  updatedAt?: string
 }
 
 export interface ExerciseSlot {
@@ -45,6 +47,8 @@ export interface ExerciseSlot {
   /** Substitution options shown in the swap menu. */
   alternatives: string[]
   note?: string
+  /** ISO timestamp of the last local modification (drives sync LWW). */
+  updatedAt?: string
 }
 
 export interface Session {
@@ -57,6 +61,8 @@ export interface Session {
   /** ISO timestamp — set when the user taps "Finish session" */
   completedAt?: string
   source: 'manual' | 'sync'
+  /** ISO timestamp of the last local modification (drives sync LWW). */
+  updatedAt?: string
 }
 
 /**
@@ -72,6 +78,8 @@ export interface SessionSlotLog {
   performedWeight?: Weight
   /** true if the whole exercise was skipped (struck-through case). */
   skipped?: boolean
+  /** ISO timestamp of the last local modification (drives sync LWW). */
+  updatedAt?: string
 }
 
 export interface SetLog {
@@ -87,6 +95,8 @@ export interface SetLog {
   skipped?: boolean
   /** ISO timestamp of when the set was first logged. */
   loggedAt?: string
+  /** ISO timestamp of the last local modification (drives sync LWW). */
+  updatedAt?: string
 }
 
 export type SoundType = 'beep' | 'chime' | 'buzz'
@@ -108,4 +118,6 @@ export interface AppState {
   vibrationType?: VibrationType
   /** Fire a lock-screen notification when rest ends while backgrounded. */
   notificationsEnabled?: boolean
+  /** ISO timestamp of the last local modification (drives sync LWW). */
+  updatedAt?: string
 }

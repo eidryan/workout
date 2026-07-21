@@ -25,15 +25,15 @@ export function useAppState(): AppState | undefined {
 }
 
 export async function updateAppState(patch: Partial<AppState>): Promise<void> {
-  await db.appState.update('app', patch)
+  await db.appState.update('app', { ...patch, updatedAt: new Date().toISOString() })
 }
 
 export async function updateDayTemplate(id: string, patch: Partial<DayTemplate>): Promise<void> {
-  await db.dayTemplates.update(id, patch)
+  await db.dayTemplates.update(id, { ...patch, updatedAt: new Date().toISOString() })
 }
 
 export async function updateExerciseSlot(id: string, patch: Partial<ExerciseSlot>): Promise<void> {
-  await db.exerciseSlots.update(id, patch)
+  await db.exerciseSlots.update(id, { ...patch, updatedAt: new Date().toISOString() })
 }
 
 const uid = () => crypto.randomUUID()
@@ -53,6 +53,7 @@ export async function addExerciseSlot(dayTemplateId: string): Promise<string> {
     muscleGroup: 'Chest' as MuscleGroup,
     restSeconds: 90,
     alternatives: [],
+    updatedAt: new Date().toISOString(),
   }
   await db.exerciseSlots.put(slot)
   return id
@@ -69,7 +70,7 @@ export async function deleteExerciseSlot(id: string): Promise<void> {
     .sortBy('order')
   for (let i = 0; i < siblings.length; i++) {
     if (siblings[i].order !== i + 1) {
-      await db.exerciseSlots.update(siblings[i].id, { order: i + 1 })
+      await db.exerciseSlots.update(siblings[i].id, { order: i + 1, updatedAt: new Date().toISOString() })
     }
   }
 }
@@ -84,6 +85,6 @@ export async function moveExerciseSlot(id: string, direction: -1 | 1): Promise<v
   const index = siblings.findIndex((s) => s.id === id)
   const swapWith = siblings[index + direction]
   if (!swapWith) return
-  await db.exerciseSlots.update(slot.id, { order: swapWith.order })
-  await db.exerciseSlots.update(swapWith.id, { order: slot.order })
+  await db.exerciseSlots.update(slot.id, { order: swapWith.order, updatedAt: new Date().toISOString() })
+  await db.exerciseSlots.update(swapWith.id, { order: slot.order, updatedAt: new Date().toISOString() })
 }

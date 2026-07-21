@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/db'
 import { useDayTemplates, useAppState, updateAppState } from './useDb'
+import { requestSync } from '@/db/sync'
 
 /**
  * How long an unfinished session stays "resumable". Inside this window we
@@ -133,6 +134,7 @@ export function useTodaySession(dayTemplateId: string | undefined): TodaySession
       date: today(),
       createdAt: new Date().toISOString(),
       source: 'manual' as const,
+      updatedAt: new Date().toISOString(),
     }
     await db.sessions.put(newSession)
     setSessionId(id)
@@ -144,8 +146,12 @@ export function useTodaySession(dayTemplateId: string | undefined): TodaySession
 
 /** Finishes the current session and advances the rotation pointer. */
 export async function finishSession(sessionId: string, dayOrder: number): Promise<void> {
-  await db.sessions.update(sessionId, { completedAt: new Date().toISOString() })
+  await db.sessions.update(sessionId, {
+    completedAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  })
   await updateAppState({ lastCompletedDayOrder: dayOrder, lastSessionId: sessionId })
+  requestSync(0)
 }
 
 /** Returns the most recent *completed* session of a given day-template. */

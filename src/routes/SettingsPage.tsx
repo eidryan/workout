@@ -15,6 +15,7 @@ import { formatScheme, formatRir, formatWeight } from '@/lib/format'
 import { SlotEditorDialog } from '@/components/SlotEditorDialog'
 import { AlertsSettings } from '@/components/AlertsSettings'
 import { DataSettings } from '@/components/DataSettings'
+import { SyncSettings } from '@/components/SyncSettings'
 
 export default function SettingsPage() {
   const days = useDayTemplates()
@@ -34,6 +35,13 @@ export default function SettingsPage() {
           Alerts &amp; feedback
         </h2>
         <AlertsSettings />
+      </section>
+
+      <section className="space-y-2">
+        <h2 className="px-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Cloud sync
+        </h2>
+        <SyncSettings />
       </section>
 
       <section className="space-y-2">

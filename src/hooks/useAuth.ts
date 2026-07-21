@@ -38,13 +38,30 @@ export function useAuth() {
   }
 }
 
-/** Send a magic-link sign-in email. */
-export async function signInWithEmail(email: string): Promise<{ error?: string }> {
+/**
+ * Email a 6-digit sign-in code.
+ *
+ * Deliberately a code rather than a clickable magic link: the code works on
+ * whatever device you type it into, with no redirect-URL allowlist to keep in
+ * sync across the Netlify and Vercel domains, and no risk of the link opening
+ * in the wrong browser (a real problem when the PWA is installed).
+ */
+export async function sendLoginCode(email: string): Promise<{ error?: string }> {
   if (!supabase) return { error: 'Sync is not configured on this build.' }
   const { error } = await supabase.auth.signInWithOtp({
     email,
-    options: { emailRedirectTo: window.location.origin },
+    options: { shouldCreateUser: true },
   })
+  return error ? { error: error.message } : {}
+}
+
+/** Exchange the emailed code for a session. */
+export async function verifyLoginCode(
+  email: string,
+  token: string,
+): Promise<{ error?: string }> {
+  if (!supabase) return { error: 'Sync is not configured on this build.' }
+  const { error } = await supabase.auth.verifyOtp({ email, token, type: 'email' })
   return error ? { error: error.message } : {}
 }
 

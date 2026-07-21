@@ -1,6 +1,7 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/db'
 import type { SessionSlotLog, SetLog, Weight } from '@/db/types'
+import { requestSync } from '@/db/sync'
 
 /** Reactive set logs for one slot in one session. */
 export function useSlotSetLogs(sessionId: string | undefined, slotId: string): SetLog[] {
@@ -40,14 +41,17 @@ export async function upsertSetLog(args: {
     await db.setLogs.update(existing.id, {
       ...args,
       loggedAt: existing.loggedAt ?? new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     })
   } else {
     await db.setLogs.put({
       id: crypto.randomUUID(),
       ...args,
       loggedAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     })
   }
+  requestSync()
 }
 
 /** Per-slot record (performed name / weight / skipped) within a session. */
@@ -74,5 +78,6 @@ export async function upsertSessionSlotLog(args: {
   performedWeight?: Weight
   skipped?: boolean
 }): Promise<void> {
-  await db.sessionSlotLogs.put(args)
+  await db.sessionSlotLogs.put({ ...args, updatedAt: new Date().toISOString() })
+  requestSync()
 }

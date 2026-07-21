@@ -6,8 +6,10 @@ import SettingsPage from '@/routes/SettingsPage'
 import HistoryPage from '@/routes/HistoryPage'
 import { RestTimerProvider } from '@/hooks/RestTimerContext'
 import { RestTimerPill } from '@/components/RestTimerPill'
+import { useAutoSync } from '@/hooks/useAutoSync'
 
 export default function App() {
+  useAutoSync()
   return (
     <RestTimerProvider>
       <div className="mx-auto flex min-h-dvh max-w-md flex-col bg-background">
