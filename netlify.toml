@@ -1,0 +1,10 @@
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+# Single-page app: let React Router handle every path, so a refresh or a
+# direct link to /settings or /history serves index.html instead of a 404.
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
