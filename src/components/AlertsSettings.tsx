@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { Bell, Volume2, Vibrate, Play } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { useAppState, updateAppState } from '@/hooks/useDb'
@@ -13,8 +14,18 @@ const SOUND_TYPES: SoundType[] = ['beep', 'chime', 'buzz']
 const VIBRATION_TYPES: VibrationType[] = ['short', 'double', 'long']
 
 /** Rest-timer alert settings: sound, vibration, notifications, rest length. */
+type PermState = NotificationPermission | 'unsupported'
+
+function currentPermission(): PermState {
+  if (typeof window === 'undefined' || !('Notification' in window)) return 'unsupported'
+  return Notification.permission
+}
+
 export function AlertsSettings() {
   const appState = useAppState()
+  const [permission, setPermission] = useState<PermState>(currentPermission)
+  const notifSupported = permission !== 'unsupported'
+
   if (!appState) return null
 
   const volume = appState.volume ?? 0.3
@@ -27,12 +38,16 @@ export function AlertsSettings() {
       await updateAppState({ notificationsEnabled: false })
       return
     }
+    if (!notifSupported) {
+      setPermission('unsupported')
+      return
+    }
+    // Must be called from this click — browsers only show the prompt in
+    // response to a user gesture.
     const granted = await ensureNotificationPermission()
+    setPermission(Notification.permission)
     await updateAppState({ notificationsEnabled: granted })
   }
-
-  const notifBlocked =
-    typeof Notification !== 'undefined' && Notification.permission === 'denied'
 
   return (
     <Card className="divide-y divide-border">
@@ -101,13 +116,31 @@ export function AlertsSettings() {
         icon={<Bell className="h-4 w-4" />}
         title="Rest-end notification"
         subtitle={
-          notifBlocked
-            ? 'Blocked in browser settings — enable there first'
-            : 'Alerts you when a rest ends and the app is in the background'
+          permission === 'unsupported'
+            ? 'Not supported by this browser. On iPhone, add the app to your Home Screen first.'
+            : permission === 'denied'
+              ? 'Blocked. Allow notifications for this site in your browser settings, then try again.'
+              : permission === 'default'
+                ? 'Turn on to allow notifications — your browser will ask for permission.'
+                : 'Alerts you when a rest ends and the app is in the background.'
         }
       >
-        <Toggle on={notificationsEnabled} onChange={toggleNotifications} disabled={notifBlocked} />
+        <Toggle
+          on={notificationsEnabled && permission === 'granted'}
+          onChange={toggleNotifications}
+          disabled={permission === 'denied' || permission === 'unsupported'}
+        />
       </Row>
+      {permission === 'denied' && (
+        <div className="px-4 pb-3">
+          <button
+            onClick={() => setPermission(currentPermission())}
+            className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+          >
+            I&apos;ve allowed it — re-check
+          </button>
+        </div>
+      )}
 
       {/* Default rest length */}
       <Row title="Default rest" subtitle="Used when an exercise has no rest set">
@@ -176,15 +209,18 @@ function Toggle({
       disabled={disabled}
       onClick={() => onChange(!on)}
       className={cn(
-        'relative h-6 w-11 rounded-full transition-colors',
+        // p-0/border-0 matter: a bare <button> has UA padding+border, which
+        // shifts the knob's static position and pushes it outside the track.
+        'relative h-6 w-11 shrink-0 rounded-full border-0 p-0 transition-colors',
         on ? 'bg-primary' : 'bg-muted',
         disabled && 'opacity-40',
       )}
     >
       <span
         className={cn(
-          'absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform',
-          on ? 'translate-x-[22px]' : 'translate-x-0.5',
+          'absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white transition-transform',
+          // track 44 − knob 20 − inset 2 = 20px of travel
+          on ? 'translate-x-5' : 'translate-x-0',
         )}
       />
     </button>

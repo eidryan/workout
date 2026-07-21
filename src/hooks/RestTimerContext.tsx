@@ -16,17 +16,13 @@ export interface RestNotify {
   body: string
 }
 
-interface RestTimerState {
-  /** Total seconds for the active timer (the original duration). */
+interface RestTimerApi {
+  /** Original duration in seconds (0 when idle). */
   total: number
   /** Seconds remaining. */
   remaining: number
-  /** Whether the countdown is currently ticking. */
+  /** True while counting down (false when paused or idle). */
   running: boolean
-}
-
-interface RestTimerApi extends RestTimerState {
-  /** Start (or restart) a countdown for the given duration. */
   start: (seconds: number, notify?: RestNotify) => void
   pause: () => void
   resume: () => void
@@ -34,140 +30,137 @@ interface RestTimerApi extends RestTimerState {
   adjust: (deltaSeconds: number) => void
 }
 
+/**
+ * Timer state.
+ *
+ * The countdown is anchored to an absolute `endsAt` timestamp instead of a
+ * decrementing counter. Background tabs get their timers throttled (or frozen
+ * entirely on mobile), so anything that counts *ticks* drifts or stalls. Wall
+ * clock arithmetic is immune: however long the tab was asleep, the remaining
+ * time is still correct the moment we look again.
+ */
+interface Core {
+  total: number
+  /** Absolute end time (ms epoch) while running; null when paused/idle. */
+  endsAt: number | null
+  /** Seconds left while paused; null otherwise. */
+  pausedRemaining: number | null
+}
+
+const IDLE: Core = { total: 0, endsAt: null, pausedRemaining: null }
+
 const Ctx = createContext<RestTimerApi | null>(null)
 
-/**
- * Wall-clock rest timer.
- *
- * The countdown is derived from an absolute `endsAt` timestamp rather than a
- * decrementing counter, so it stays correct when the tab is backgrounded and
- * `setInterval` is throttled/paused (fixes the "leaving Chrome forgets the
- * time" bug). On tab re-focus we recompute immediately from the wall clock.
- */
 export function RestTimerProvider({ children }: { children: ReactNode }) {
-  const [total, setTotal] = useState(0)
-  /** Absolute completion time (ms epoch) while running; null when paused/idle. */
-  const [endsAt, setEndsAt] = useState<number | null>(null)
-  /** Seconds left while paused; null otherwise. Read only via state updaters. */
-  const [, setPausedRemaining] = useState<number | null>(null)
-  const [remaining, setRemaining] = useState(0)
+  const [core, setCore] = useState<Core>(IDLE)
+  const [now, setNow] = useState(() => Date.now())
   const appState = useAppState()
-  const firedRef = useRef(false)
   const notifyRef = useRef<RestNotify | null>(null)
+  const firedForRef = useRef<number | null>(null)
 
-  const running = endsAt !== null
+  const running = core.endsAt !== null
+  const remaining =
+    core.endsAt !== null
+      ? Math.max(0, Math.round((core.endsAt - now) / 1000))
+      : (core.pausedRemaining ?? 0)
 
-  const onComplete = useCallback(() => {
+  // Drive re-renders while running, and re-sync the instant the tab is shown
+  // again (the interval may have been throttled to a standstill).
+  useEffect(() => {
+    if (!running) return
+    const sync = () => setNow(Date.now())
+    sync()
+    const id = setInterval(sync, 250)
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') sync()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    return () => {
+      clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+    }
+  }, [running])
+
+  // Fire completion feedback exactly once per timer.
+  useEffect(() => {
+    if (!running || remaining > 0 || core.endsAt === null) return
+    if (firedForRef.current === core.endsAt) return
+    firedForRef.current = core.endsAt
+
     if (appState?.soundEnabled) playSound(appState.soundType ?? 'beep', appState.volume ?? 0.3)
     if (appState?.vibrationEnabled) vibrate(appState.vibrationType ?? 'double')
-    // Only notify when the user isn't looking at the app — otherwise the
-    // in-app timer already tells them.
+    // Only notify when the user isn't looking — otherwise the in-app timer
+    // already told them.
     if (
       appState?.notificationsEnabled &&
-      typeof document !== 'undefined' &&
       document.visibilityState !== 'visible' &&
       notifyRef.current
     ) {
       fireNotification(notifyRef.current.title, notifyRef.current.body)
     }
-  }, [
-    appState?.soundEnabled,
-    appState?.vibrationEnabled,
-    appState?.soundType,
-    appState?.volume,
-    appState?.vibrationType,
-    appState?.notificationsEnabled,
-  ])
-
-  // Derive `remaining` from the wall clock; fire completion once at zero.
-  useEffect(() => {
-    if (endsAt === null) return
-    firedRef.current = false
-    const tick = () => {
-      const rem = Math.max(0, Math.round((endsAt - Date.now()) / 1000))
-      setRemaining(rem)
-      if (rem <= 0 && !firedRef.current) {
-        firedRef.current = true
-        onComplete()
-        setEndsAt(null)
-        setPausedRemaining(null)
-        setTotal(0)
-      }
-    }
-    tick()
-    const id = setInterval(tick, 250)
-    // Recompute the instant the tab regains focus, in case the interval was
-    // throttled to a standstill while backgrounded.
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') tick()
-    }
-    document.addEventListener('visibilitychange', onVisible)
-    return () => {
-      clearInterval(id)
-      document.removeEventListener('visibilitychange', onVisible)
-    }
-  }, [endsAt, onComplete])
+    setCore(IDLE)
+  }, [running, remaining, core.endsAt, appState])
 
   const start = useCallback((seconds: number, notify?: RestNotify) => {
     notifyRef.current = notify ?? null
-    setTotal(seconds)
-    setPausedRemaining(null)
-    setRemaining(seconds)
-    setEndsAt(Date.now() + seconds * 1000)
+    const endsAt = Date.now() + seconds * 1000
+    firedForRef.current = null
+    setNow(Date.now())
+    setCore({ total: seconds, endsAt, pausedRemaining: null })
   }, [])
 
   const pause = useCallback(() => {
-    setEndsAt((prev) => {
-      if (prev === null) return prev
-      const rem = Math.max(0, Math.round((prev - Date.now()) / 1000))
-      setPausedRemaining(rem)
-      setRemaining(rem)
-      return null
+    setCore((c) => {
+      if (c.endsAt === null) return c
+      const rem = Math.max(0, Math.round((c.endsAt - Date.now()) / 1000))
+      return { ...c, endsAt: null, pausedRemaining: rem }
     })
   }, [])
 
   const resume = useCallback(() => {
-    setPausedRemaining((rem) => {
-      const left = rem ?? 0
-      if (left > 0) setEndsAt(Date.now() + left * 1000)
-      return null
+    setCore((c) => {
+      const rem = c.pausedRemaining ?? 0
+      if (rem <= 0) return c
+      firedForRef.current = null
+      return { ...c, endsAt: Date.now() + rem * 1000, pausedRemaining: null }
     })
   }, [])
 
-  const skip = useCallback(() => {
-    setEndsAt(null)
-    setPausedRemaining(null)
-    setTotal(0)
-    setRemaining(0)
-  }, [])
+  const skip = useCallback(() => setCore(IDLE), [])
 
   const adjust = useCallback((delta: number) => {
-    setEndsAt((prevEnds) => {
-      if (prevEnds !== null) {
-        const newEnds = prevEnds + delta * 1000
-        const rem = Math.max(0, Math.round((newEnds - Date.now()) / 1000))
-        setRemaining(rem)
-        setTotal((t) => Math.max(t, rem))
-        return rem > 0 ? newEnds : null
+    setCore((c) => {
+      // Running: shift the end time.
+      if (c.endsAt !== null) {
+        const endsAt = c.endsAt + delta * 1000
+        const rem = Math.max(0, Math.round((endsAt - Date.now()) / 1000))
+        if (rem <= 0) return IDLE
+        return { total: Math.max(c.total, rem), endsAt, pausedRemaining: null }
       }
-      // Paused or idle.
-      setPausedRemaining((prevPaused) => {
-        if (prevPaused === null && delta <= 0) return prevPaused
-        const rem = Math.max(0, (prevPaused ?? 0) + delta)
-        setRemaining(rem)
-        setTotal((t) => Math.max(t, rem))
-        // If there was no active timer at all, adding time starts a fresh one.
-        if (prevPaused === null) {
-          setEndsAt(Date.now() + rem * 1000)
-          return null
-        }
-        return rem
-      })
-      return prevEnds
+      // Paused: adjust the stored remainder.
+      if (c.pausedRemaining !== null) {
+        const rem = Math.max(0, c.pausedRemaining + delta)
+        return { ...c, total: Math.max(c.total, rem), pausedRemaining: rem }
+      }
+      // Idle: adding time starts a fresh timer.
+      if (delta <= 0) return c
+      firedForRef.current = null
+      return { total: delta, endsAt: Date.now() + delta * 1000, pausedRemaining: null }
     })
   }, [])
 
-  const api: RestTimerApi = { total, remaining, running, start, pause, resume, skip, adjust }
+  const api: RestTimerApi = {
+    total: core.total,
+    remaining,
+    running,
+    start,
+    pause,
+    resume,
+    skip,
+    adjust,
+  }
   return <Ctx.Provider value={api}>{children}</Ctx.Provider>
 }
 

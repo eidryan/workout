@@ -1,17 +1,48 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useLiveQuery } from 'dexie-react-hooks'
 import { db } from '@/db/db'
-import type { Session } from '@/db/types'
 import { useDayTemplates, useAppState, updateAppState } from './useDb'
 
 /**
- * The most recent still-in-progress (uncompleted) session, if any.
- * `undefined` while loading, `null` when there is none.
+ * How long an unfinished session stays "resumable". Inside this window we
+ * assume you're mid-workout (left the gym, came back, phone slept). Outside
+ * it, the session is treated as abandoned so it can't hijack the rotation
+ * forever.
  */
-export function useActiveSession(): Session | null | undefined {
+const RESUME_WINDOW_MS = 12 * 60 * 60 * 1000
+
+interface DaySelection {
+  /** Day template to resume — an unfinished session is still in progress. */
+  resumeDayTemplateId?: string
+  /** Day template that was last actually worked; the next one is due. */
+  lastWorkedDayTemplateId?: string
+}
+
+/**
+ * Works out which day is due, from the session history rather than the
+ * rotation pointer alone (the pointer only moves on an explicit "Finish
+ * session", which is easy to forget).
+ */
+export function useDaySelection(): DaySelection | undefined {
   return useLiveQuery(async () => {
-    const rows = await db.sessions.orderBy('createdAt').reverse().toArray()
-    return rows.find((s) => !s.completedAt) ?? null
+    const sessions = await db.sessions.orderBy('createdAt').reverse().toArray()
+    if (!sessions.length) return {}
+
+    // 1. Genuinely mid-workout?
+    const now = Date.now()
+    const resumable = sessions.find(
+      (s) => !s.completedAt && now - new Date(s.createdAt).getTime() < RESUME_WINDOW_MS,
+    )
+    if (resumable) return { resumeDayTemplateId: resumable.dayTemplateId }
+
+    // 2. Otherwise advance past the last day that saw real work — whether or
+    //    not it was formally finished.
+    for (const s of sessions) {
+      if (s.completedAt) return { lastWorkedDayTemplateId: s.dayTemplateId }
+      const logged = await db.setLogs.where('sessionId').equals(s.id).count()
+      if (logged > 0) return { lastWorkedDayTemplateId: s.dayTemplateId }
+    }
+    return {}
   }, [])
 }
 
@@ -28,16 +59,22 @@ export function useActiveSession(): Session | null | undefined {
 export function useNextDay() {
   const days = useDayTemplates()
   const appState = useAppState()
-  const active = useActiveSession()
+  const selection = useDaySelection()
   const [overrideId, setOverrideId] = useState<string | null>(null)
 
-  const overrideDay = overrideId ? days?.find((d) => d.id === overrideId) : undefined
-  const activeDay = active ? days?.find((d) => d.id === active.dayTemplateId) : undefined
-  const rotationDay = days?.find(
-    (d) => d.order === ((appState?.lastCompletedDayOrder ?? 0) % 4) + 1,
-  )
+  const byId = (id?: string) => (id ? days?.find((d) => d.id === id) : undefined)
+  const nextAfter = (order: number) => days?.find((d) => d.order === (order % 4) + 1)
 
-  const day = overrideDay ?? activeDay ?? rotationDay
+  const overrideDay = byId(overrideId ?? undefined)
+  const resumeDay = byId(selection?.resumeDayTemplateId)
+
+  // Day after the last one actually worked; falls back to the stored pointer.
+  const lastWorked = byId(selection?.lastWorkedDayTemplateId)
+  const advanceDay = lastWorked
+    ? nextAfter(lastWorked.order)
+    : nextAfter(appState?.lastCompletedDayOrder ?? 0)
+
+  const day = overrideDay ?? resumeDay ?? advanceDay
 
   return { day, days, overrideId, setOverrideId }
 }
