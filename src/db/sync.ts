@@ -286,6 +286,37 @@ async function syncAppState(userId: string) {
   return { pulled, pushed }
 }
 
+/**
+ * Every install seeds its own Day 1–4 with fresh random ids, so a brand-new
+ * device syncing into an existing account would otherwise end up with two of
+ * every day template and exercise.
+ *
+ * When this device has no workout history of its own (nothing to lose) but the
+ * account already has a programme, adopt the account's programme wholesale
+ * instead of merging. A device that *does* have history is left alone and
+ * merged normally — we never discard real training data to tidy up ids.
+ */
+async function adoptRemoteProgrammeIfNewDevice(userId: string): Promise<void> {
+  if (lastSyncAt()) return // not a first sync
+  const localSessions = await db.sessions.count()
+  if (localSessions > 0) return // this device has real history — merge instead
+
+  const client = supabase!
+  const [days, slots] = await Promise.all([
+    client.from('day_templates').select('*').eq('user_id', userId),
+    client.from('exercise_slots').select('*').eq('user_id', userId),
+  ])
+  if (days.error || slots.error) return
+  if (!days.data?.length) return // account has no programme yet — ours will seed it
+
+  await db.transaction('rw', [db.dayTemplates, db.exerciseSlots], async () => {
+    await db.dayTemplates.clear()
+    await db.exerciseSlots.clear()
+    await db.dayTemplates.bulkPut(days.data.map(dayTemplates.toLocal))
+    await db.exerciseSlots.bulkPut((slots.data ?? []).map(exerciseSlots.toLocal))
+  })
+}
+
 let inFlight: Promise<SyncResult> | null = null
 
 /**
@@ -299,6 +330,9 @@ export function syncNow(userId: string): Promise<SyncResult> {
   inFlight = (async () => {
     let pulled = 0
     let pushed = 0
+
+    await adoptRemoteProgrammeIfNewDevice(userId)
+
     // Parents before children: a set log is meaningless without its session.
     for (const spec of SPECS) {
       const r = await syncTable(spec as TableSpec<unknown>, userId)
